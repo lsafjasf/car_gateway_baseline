@@ -33,7 +33,7 @@ from typing import BinaryIO
 
 from .config import Config
 from .durability import atomic_replace_write, fsync_dir
-from .models import DataCorruptionError, Sample, ShutdownError, Stats
+from .models import DataCorruptionError, FrameTooLargeError, Sample, ShutdownError, Stats
 
 log = logging.getLogger("gateway.store")
 
@@ -283,7 +283,16 @@ class Store:
     # ============================================================== producer
 
     def reserve(self, nbytes: int) -> None:
-        """Block until flash quota covers ``nbytes`` more buffered bytes."""
+        """Block until flash quota covers ``nbytes`` more buffered bytes.
+
+        Raises FrameTooLargeError immediately if one frame alone exceeds the
+        whole quota: no amount of cloud ACK could ever free room for it, so
+        blocking would hang every collector forever.
+        """
+        if nbytes > self._cfg.quota_bytes:
+            raise FrameTooLargeError(
+                f"frame needs {nbytes} bytes but quota is "
+                f"{self._cfg.quota_bytes}")
         with self._cv:
             while not self._closing:
                 if self._bytes_on_disk_locked() + self._reserved + nbytes <= self._cfg.quota_bytes:
@@ -428,7 +437,14 @@ class Store:
         return plan
 
     def next_batch(self) -> "Batch | None":
-        """Assemble one upload batch from the oldest unacked closed frames."""
+        """Assemble one upload batch from the oldest unacked closed frames.
+
+        The first eligible frame is ALWAYS taken, even when it alone exceeds
+        batch_max_records/batch_max_bytes: otherwise one oversized frame would
+        block the queue forever (never uploaded, never reclaimed, collectors
+        stuck on quota once flash fills). Such a frame forms a singleton
+        batch and clears the head of the queue.
+        """
         with self._cv:
             target = self._acked_seq + 1
             plan = self._read_closed_plan_locked()
@@ -436,9 +452,8 @@ class Store:
             max_bytes = self._cfg.batch_max_bytes
         frames: list[dict] = []
         wire_bytes = 2  # "[]"
+        full = False
         for path, start in plan:
-            if len(frames) >= max_records:
-                break
             with open(path, "rb") as fh:
                 fh.seek(start)
                 for line in fh:
@@ -447,11 +462,15 @@ class Store:
                     rec = json.loads(line)
                     if rec["seq"] < target:
                         continue
-                    if len(frames) >= max_records or wire_bytes + len(line) > max_bytes:
+                    if frames and (
+                        len(frames) >= max_records
+                        or wire_bytes + len(line) + 1 > max_bytes
+                    ):
+                        full = True
                         break
                     frames.append(rec)
                     wire_bytes += len(line) + 1
-                if len(frames) >= max_records:
+                if full:
                     break
         if not frames:
             return None

@@ -24,6 +24,10 @@ class ShutdownError(GatewayError):
     """Raised by submit() after the gateway started shutting down."""
 
 
+class FrameTooLargeError(GatewayError):
+    """A single frame can never fit in the configured flash quota."""
+
+
 class Clock(Protocol):
     """Injectable clock (tests use a fake one to drive rotation/batching)."""
 

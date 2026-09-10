@@ -72,6 +72,11 @@ python -m pytest          # 43 个用例，覆盖断电恢复/ACK 丢失/配额�
 - 闸门是 `现存段字节 + 已预留字节 ≤ quota_bytes`；写满且云端未确认时
   **采集线程阻塞在 `submit()` 里**（不丢数），ACK 推进、段被删除后
   `notify_all` 唤醒。
+- **超大帧不会造成永久队头阻塞**：组批时每一趟至少带走最早的一条未确认
+  帧——单帧超过 `batch_max_bytes` 时单独成批发出，随后 ACK 释放它占用的
+  段，不会出现“传不走、删不掉、配额耗尽、采集全卡死”。若单帧（含封装
+  开销）本身就大于整个 `quota_bytes`，`submit()` 立即抛
+  `FrameTooLargeError`，而非永久等待。
 
 ### 5. 本地 HTTP 接口（标准库 ThreadingHTTPServer）
 
