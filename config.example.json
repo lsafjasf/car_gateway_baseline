@@ -1,0 +1,19 @@
+{
+  "data_dir": "./data",
+  "quota_bytes": 536870912,
+  "segment_bytes": 8388608,
+  "segment_max_age_s": 2.0,
+  "group_max_wait_s": 0.01,
+  "group_max_records": 256,
+  "queue_max_records": 10000,
+  "batch_max_records": 500,
+  "batch_max_bytes": 262144,
+  "batch_max_age_s": 1.0,
+  "backoff_initial_s": 0.5,
+  "backoff_max_s": 30.0,
+  "http_timeout_s": 10.0,
+  "cloud_url": "http://127.0.0.1:8080",
+  "cloud_path": "/batches",
+  "api_host": "127.0.0.1",
+  "api_port": 8081
+}
